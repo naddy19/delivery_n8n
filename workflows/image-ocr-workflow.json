@@ -1,0 +1,121 @@
+{
+  "name": "Image OCR and Route Optimization",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload-image",
+        "options": {}
+      },
+      "id": "webhook-node-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "upload-image"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/node/.n8n/uploads/test.jpg",
+        "dataPropertyName": "image",
+        "options": {}
+      },
+      "id": "save-image-node-2",
+      "name": "Save Image",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get binary data buffer and convert to base64\nconst binaryData = $input.first().binary.image;\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'image');\nconst base64Data = buffer.toString('base64');\nconst mimeType = binaryData.mimeType || 'image/jpeg';\nconst base64Image = `data:${mimeType};base64,${base64Data}`;\n\nreturn {\n  json: {\n    base64Image: base64Image,\n    mimeType: mimeType,\n    size: buffer.length\n  }\n};"
+      },
+      "id": "format-base64-node",
+      "name": "Format Base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log file details before sending to OCR\nconst binaryData = $input.first().binary?.image;\nconst base64Image = $json.base64Image;\n\nconsole.log('=== File Details ===');\nconsole.log('MIME Type:', binaryData?.mimeType);\nconsole.log('File Name:', binaryData?.fileName);\nconsole.log('File Size (bytes):', binaryData?.fileSize);\nconsole.log('Base64 Length:', base64Image?.length);\nconsole.log('Base64 Preview (first 100 chars):', base64Image?.substring(0, 100));\nconsole.log('===================');\n\nreturn $input.all();"
+      },
+      "id": "log-file-details-node",
+      "name": "Log File Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [550, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ocr.space/parse/image",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "K87698722188957"
+            },
+            {
+              "name": "base64Image",
+              "value": "={{ $json.base64Image }}"
+            },
+            {
+              "name": "language",
+              "value": "eng"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ocr-api-node-3",
+      "name": "OCR API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return the full OCR response\nreturn $input.all();"
+      },
+      "id": "extract-addresses-node-4",
+      "name": "Extract Addresses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { extractedText: $json.address, allAddresses: $('Extract Addresses').all() } }}"
+      },
+      "id": "respond-node-5",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Format Base64", "type": "main", "index": 0 }]]
+    },
+    "Format Base64": {
+      "main": [[{ "node": "Log File Details", "type": "main", "index": 0 }]]
+    },
+    "Log File Details": {
+      "main": [[{ "node": "OCR API", "type": "main", "index": 0 }]]
+    },
+    "OCR API": {
+      "main": [[{ "node": "Extract Addresses", "type": "main", "index": 0 }]]
+    },
+    "Extract Addresses": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": {}
+}
