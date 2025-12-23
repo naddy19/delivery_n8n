@@ -5,6 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "upload-image",
+        "responseMode": "lastNode",
         "options": {}
       },
       "id": "webhook-node-1",
@@ -50,36 +51,28 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.ocr.space/parse/image",
+        "url": "http://tesseract:8867/ocr/table",
         "sendBody": true,
-        "contentType": "multipart-form-data",
+        "contentType": "json",
         "bodyParameters": {
           "parameters": [
             {
-              "name": "apikey",
-              "value": "K87698722188957"
-            },
-            {
               "name": "base64Image",
               "value": "={{ $json.base64Image }}"
-            },
-            {
-              "name": "language",
-              "value": "eng"
             }
           ]
         },
         "options": {}
       },
       "id": "ocr-api-node-3",
-      "name": "OCR API",
+      "name": "Tesseract Table API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [650, 300]
     },
     {
       "parameters": {
-        "jsCode": "// Return the full OCR response\nreturn $input.all();"
+        "jsCode": "// STEP 1 & 2: Parse tabular route data from Tesseract\nconst ocrResult = $json;\n\n// Handle both Tesseract and OCR.space formats\nconst parsedText = ocrResult.fullText || ocrResult.ParsedResults?.[0]?.ParsedText || '';\nconst rows = ocrResult.rows || [];\n\nconsole.log('=== OCR DATA ===');\nconsole.log(`Total rows detected: ${rows.length}`);\nconsole.log('===================');\n\n// Parse the table rows to extract route data\nconst groups = [];\nlet foundRouteStart = false;\n\nfor (let i = 0; i < rows.length; i++) {\n  const row = rows[i];\n  const text = row.text;\n  const columns = row.columns || [];\n  \n  // Debug: show first 20 rows structure\n  if (i < 20) {\n    console.log(`Row ${i}: ${columns.length} columns - \"${text.substring(0, 80)}\"`);\n  }\n  \n  // Look for route data start\n  if (text.includes('Arrét') && text.includes('Stop') && text.includes('Rue')) {\n    foundRouteStart = true;\n    console.log(`Found route start at row ${i}`);\n    continue;\n  }\n  \n  if (!foundRouteStart) continue;\n  \n  // Skip total/summary rows\n  if (text.includes('Stop Total') || text.includes('Loop Break') || \n      text.includes('Page') || text.includes('Arrét /Stop Total')) {\n    continue;\n  }\n  \n  // Skip header/instruction rows\n  if (text.includes('EDMONTON LCD') || text.includes('Heure de') || \n      text.includes('Compagnie') || text.includes('SPLITS') || \n      text.includes('Delivery') || text.includes('RTA') || \n      text.includes('BPCOM')) {\n    continue;\n  }\n  \n  // Need at least 2 columns (group # and street)\n  if (columns.length < 2) continue;\n  \n  // First column should be group number\n  const col0 = columns[0].map(w => w.text).join(' ').trim();\n  const col1 = columns[1].map(w => w.text).join(' ').trim();\n  const col2 = columns.length > 2 ? columns[2].map(w => w.text).join(' ').trim() : '';\n  const col3 = columns.length > 3 ? columns[3].map(w => w.text).join(' ').trim() : '';\n  \n  // Check if first column is a group number (1-2 digits, 1-30 range)\n  const groupMatch = col0.match(/^(\\d{1,2})$/);\n  \n  if (groupMatch) {\n    const groupNum = parseInt(groupMatch[1]);\n    if (groupNum >= 1 && groupNum <= 50) {\n      // Second column should be a street name\n      if (col1 && col1.match(/(ST|AVE|DR|RD|TERRACE|PT|CRES|PARK|NW|NE|SW|SE)/i)) {\n        // Third and fourth columns are house numbers\n        const fromHouse = col2.match(/\\d{4,5}/) ? col2 : '';\n        const toHouse = col3.match(/\\d{4,5}/) ? col3 : '';\n        \n        console.log(`Group ${groupNum}: ${col1} | From: ${fromHouse} | To: ${toHouse}`);\n        \n        groups.push({\n          groupNumber: groupNum,\n          streetName: col1,\n          fromHouse: fromHouse,\n          toHouse: toHouse,\n          rawRow: text\n        });\n      }\n    }\n  }\n}\n\nconsole.log(`\\nExtracted ${groups.length} route entries`);\n\n// Organize into structure grouped by group number\nconst groupMap = {};\ngroups.forEach(g => {\n  if (!groupMap[g.groupNumber]) {\n    groupMap[g.groupNumber] = {\n      groupNumber: g.groupNumber,\n      streets: [],\n      totalStreets: 0\n    };\n  }\n  \n  groupMap[g.groupNumber].streets.push({\n    streetName: g.streetName,\n    fromHouse: g.fromHouse,\n    toHouse: g.toHouse\n  });\n  groupMap[g.groupNumber].totalStreets++;\n});\n\nconst groupsArray = Object.values(groupMap).sort((a, b) => a.groupNumber - b.groupNumber);\nconst totalStreets = groupsArray.reduce((sum, g) => sum + g.totalStreets, 0);\n\nconst routeData = {\n  totalGroups: groupsArray.length,\n  groups: groupsArray,\n  rawText: parsedText,\n  debugInfo: [\n    `Total OCR rows: ${rows.length}`,\n    `Rows with columns: ${rows.filter(r => r.columns && r.columns.length > 0).length}`,\n    `Route entries found: ${groups.length}`,\n    `Unique groups: ${groupsArray.length}`,\n    '---',\n    'First 10 parsed rows:',\n    ...rows.slice(0, 10).map((r, i) => `${i}: [${r.columns ? r.columns.length : 0} cols] ${r.text.substring(0, 100)}`)\n  ]\n};\n\nconsole.log('=== PARSING RESULTS ===');\nconsole.log(`Total Groups: ${routeData.totalGroups}`);\nconsole.log(`Total Streets: ${totalStreets}`);\nif (groupsArray.length > 0) {\n  groupsArray.slice(0, 5).forEach(g => {\n    console.log(`  Group ${g.groupNumber}: ${g.totalStreets} streets`);\n  });\n}\nconsole.log('======================');\n\nreturn {\n  json: {\n    routeData: routeData,\n    summary: {\n      totalGroups: routeData.totalGroups,\n      totalStreets: totalStreets,\n      totalHouses: 0\n    }\n  }\n};"
       },
       "id": "extract-addresses-node-4",
       "name": "Extract Addresses",
@@ -89,14 +82,34 @@
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ { extractedText: $json.address, allAddresses: $('Extract Addresses').all() } }}"
+        "jsCode": "// Generate HTML display for Steps 1 & 2: Groups and Streets\nconst routeData = $json.routeData;\nconst summary = $json.summary;\n\nlet html = `\n<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Route Analysis</title>\n  <style>\n    body {\n      font-family: Arial, sans-serif;\n      margin: 0;\n      padding: 20px;\n      background: #f5f5f5;\n    }\n    .container {\n      max-width: 800px;\n      margin: 0 auto;\n      background: white;\n      border-radius: 10px;\n      padding: 20px;\n      box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n    }\n    h1 {\n      color: #2c3e50;\n      text-align: center;\n      margin-bottom: 10px;\n    }\n    .subtitle {\n      text-align: center;\n      color: #7f8c8d;\n      margin-bottom: 30px;\n    }\n    .summary {\n      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n      color: white;\n      padding: 20px;\n      border-radius: 8px;\n      margin-bottom: 30px;\n    }\n    .summary-grid {\n      display: grid;\n      grid-template-columns: repeat(3, 1fr);\n      gap: 15px;\n      margin-top: 15px;\n    }\n    .summary-item {\n      text-align: center;\n    }\n    .summary-number {\n      font-size: 32px;\n      font-weight: bold;\n      display: block;\n    }\n    .summary-label {\n      font-size: 14px;\n      opacity: 0.9;\n    }\n    .group {\n      margin-bottom: 25px;\n      border: 2px solid #3498db;\n      border-radius: 8px;\n      overflow: hidden;\n    }\n    .group-header {\n      background: #3498db;\n      color: white;\n      padding: 15px;\n      display: flex;\n      justify-content: space-between;\n      align-items: center;\n    }\n    .group-title {\n      font-size: 20px;\n      font-weight: bold;\n    }\n    .group-count {\n      background: rgba(255,255,255,0.2);\n      padding: 5px 12px;\n      border-radius: 15px;\n      font-size: 14px;\n    }\n    .street-list {\n      padding: 15px;\n      background: white;\n    }\n    .street-item {\n      padding: 12px;\n      margin-bottom: 8px;\n      background: #f8f9fa;\n      border-radius: 5px;\n      border-left: 4px solid #27ae60;\n    }\n    .street-item:last-child {\n      margin-bottom: 0;\n    }\n    .street-name {\n      font-weight: bold;\n      color: #2c3e50;\n      margin-bottom: 5px;\n    }\n    .house-preview {\n      color: #7f8c8d;\n      font-size: 13px;\n    }\n    .house-badge {\n      display: inline-block;\n      background: #27ae60;\n      color: white;\n      padding: 2px 8px;\n      border-radius: 3px;\n      font-size: 12px;\n      margin-right: 8px;\n    }\n    .raw-toggle {\n      background: #6c757d;\n      color: white;\n      border: none;\n      padding: 10px 15px;\n      border-radius: 5px;\n      cursor: pointer;\n      width: 100%;\n      margin-top: 20px;\n    }\n    .raw-text {\n      background: #f8f9fa;\n      border: 1px solid #dee2e6;\n      border-radius: 5px;\n      padding: 15px;\n      margin-top: 10px;\n      font-family: monospace;\n      font-size: 11px;\n      white-space: pre-wrap;\n      max-height: 300px;\n      overflow-y: auto;\n      display: none;\n    }\n    .debug-info {\n      background: #fff3cd;\n      border: 1px solid #ffc107;\n      border-radius: 5px;\n      padding: 15px;\n      margin-top: 20px;\n      display: none;\n    }\n    .debug-toggle {\n      background: #ffc107;\n      color: #000;\n      border: none;\n      padding: 10px 15px;\n      border-radius: 5px;\n      cursor: pointer;\n      width: 100%;\n      margin-top: 10px;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <h1>📋 Route Analysis</h1>\n    <div class=\"subtitle\">Steps 1 & 2: Groups and Streets</div>\n    \n    <div class=\"summary\">\n      <div style=\"font-size: 18px; margin-bottom: 10px;\">📊 Summary</div>\n      <div class=\"summary-grid\">\n        <div class=\"summary-item\">\n          <span class=\"summary-number\">${summary.totalGroups}</span>\n          <span class=\"summary-label\">Groups</span>\n        </div>\n        <div class=\"summary-item\">\n          <span class=\"summary-number\">${summary.totalStreets}</span>\n          <span class=\"summary-label\">Streets</span>\n        </div>\n        <div class=\"summary-item\">\n          <span class=\"summary-number\">${summary.totalHouses}</span>\n          <span class=\"summary-label\">Houses</span>\n        </div>\n      </div>\n    </div>\n`;\n\nif (routeData.groups.length === 0) {\n  html += `\n    <div style=\"padding: 20px; background: #fee; border: 1px solid #c00; border-radius: 5px; text-align: center;\">\n      <strong>⚠️ No groups found</strong><br>\n      The parser couldn't identify any delivery groups. Check debug info below.\n    </div>\n  `;\n} else {\n  routeData.groups.forEach(group => {\n    html += `\n    <div class=\"group\">\n      <div class=\"group-header\">\n        <span class=\"group-title\">Group ${group.groupNumber}</span>\n        <span class=\"group-count\">${group.totalStreets} streets</span>\n      </div>\n      <div class=\"street-list\">\n`;\n    \n    group.streets.forEach((street, idx) => {\n      const houseRange = street.fromHouse && street.toHouse \n        ? `${street.fromHouse} - ${street.toHouse}` \n        : 'House numbers not detected';\n      \n      html += `\n        <div class=\"street-item\">\n          <div class=\"street-name\">${idx + 1}. ${street.streetName}</div>\n          <div class=\"house-preview\">\n            <span class=\"house-badge\">Range</span>\n            ${houseRange}\n          </div>\n        </div>\n`;\n    });\n    \n    html += `\n      </div>\n    </div>\n`;\n  });\n}\n\nhtml += `\n    <button class=\"debug-toggle\" onclick=\"document.getElementById('debugInfo').style.display = document.getElementById('debugInfo').style.display === 'none' ? 'block' : 'none'\">🔍 Show Debug Info</button>\n    <div id=\"debugInfo\" class=\"debug-info\">\n      <strong>Debug Information:</strong><br><br>\n      ${routeData.debugInfo.slice(0, 50).join('<br>')}\n    </div>\n    \n    <button class=\"raw-toggle\" onclick=\"document.getElementById('rawText').style.display = document.getElementById('rawText').style.display === 'none' ? 'block' : 'none'\">📄 Show Raw OCR Text</button>\n    <div id=\"rawText\" class=\"raw-text\">${routeData.rawText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>\n  </div>\n</body>\n</html>\n`;\n\nreturn {\n  json: {\n    html: html,\n    routeData: routeData,\n    summary: summary\n  }\n};"
+      },
+      "id": "generate-map-node",
+      "name": "Generate Map View",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
       },
       "id": "respond-node-5",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1050, 300]
+      "position": [1250, 300]
     }
   ],
   "connections": {
@@ -113,6 +126,9 @@
       "main": [[{ "node": "Extract Addresses", "type": "main", "index": 0 }]]
     },
     "Extract Addresses": {
+      "main": [[{ "node": "Generate Map View", "type": "main", "index": 0 }]]
+    },
+    "Generate Map View": {
       "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
     }
   },

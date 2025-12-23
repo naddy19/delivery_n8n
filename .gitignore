@@ -1,1 +1,5 @@
 n8n_data/
+.env
+*.env
+.env.*
+!.env.example

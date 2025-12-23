@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   n8n:
     image: n8nio/n8n
@@ -39,6 +37,30 @@ services:
     restart: unless-stopped
     networks:
       - delivery_network
+
+  claude-ocr:
+    image: python:3.10-slim
+    container_name: delivery_claude_ocr
+    command: >
+      bash -c "apt-get update && 
+      apt-get install -y curl && 
+      pip install anthropic flask pillow && 
+      python /app/claude_ocr_server.py"
+    ports:
+      - "8869:8869"
+    volumes:
+      - ./claude_ocr_server.py:/app/claude_ocr_server.py:ro
+    environment:
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - PORT=8869
+    restart: unless-stopped
+    networks:
+      - delivery_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8869/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   delivery_network:
