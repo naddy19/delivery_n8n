@@ -50,8 +50,12 @@ Please extract this data and return it as a JSON object with this structure:
 Important:
 - Extract ALL group numbers you see in the table
 - For each group, extract all associated streets
-- Include house number ranges when visible
-- If house numbers aren't clear, use empty strings
+- Include house number ranges when visible (from and to)
+- CRITICAL: Be extremely careful when reading house numbers - they are typically 3-5 digits
+- House number ranges are usually small (e.g., 503-512, not 503-7204)
+- If you see a range spanning more than 50 house numbers, double-check the digits
+- Common digit confusion: 1↔7, 2↔7, 5↔8, 0↔8 - verify carefully
+- If house numbers aren't clear or seem unreasonably large, use empty strings
 - Preserve the exact street names as shown
 - Skip headers, totals, and metadata rows
 - Only include actual delivery route data
@@ -81,6 +85,10 @@ def ocr_table():
     - Structured table data extracted by Claude
     """
     try:
+        print(f"DEBUG: Request received - Content-Type: {request.content_type}")
+        print(f"DEBUG: request.is_json: {request.is_json}")
+        print(f"DEBUG: Has 'image' in files: {'image' in request.files}")
+        
         if not client:
             return jsonify({
                 "error": "Claude API client not initialized. Set CLAUDE_API_KEY environment variable."
@@ -95,18 +103,35 @@ def ocr_table():
             data = request.get_json()
             base64_image = data.get('base64Image', '')
             
+            print(f"DEBUG: Received base64_image length: {len(base64_image)}")
+            print(f"DEBUG: First 100 chars: {base64_image[:100]}")
+            
             # Extract media type if present in data URL
             if base64_image.startswith('data:'):
                 header, base64_data = base64_image.split(',', 1)
                 # Extract media type from header like "data:image/png;base64"
                 if 'image/' in header:
                     media_type = header.split(';')[0].replace('data:', '')
+                print(f"DEBUG: Extracted media_type: {media_type}")
+                print(f"DEBUG: Base64 data length after split: {len(base64_data)}")
             else:
                 base64_data = base64_image
+                print(f"DEBUG: No data URL prefix, using raw base64")
+            
+            # Clean the base64 data (remove whitespace)
+            base64_data = base64_data.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+            print(f"DEBUG: Base64 data length after cleaning: {len(base64_data)}")
             
             # Decode to verify it's valid
-            image_bytes = base64.b64decode(base64_data)
-            image = Image.open(io.BytesIO(image_bytes))
+            try:
+                image_bytes = base64.b64decode(base64_data)
+                print(f"DEBUG: Decoded image_bytes length: {len(image_bytes)}")
+                print(f"DEBUG: First 20 bytes (hex): {image_bytes[:20].hex()}")
+                image = Image.open(io.BytesIO(image_bytes))
+                print(f"DEBUG: Successfully opened image: {image.format}, {image.size}")
+            except Exception as e:
+                print(f"ERROR: Failed to decode/open image: {str(e)}")
+                raise
         
         # Handle file upload
         elif 'image' in request.files:

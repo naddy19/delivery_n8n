@@ -18,6 +18,7 @@ services:
       - EXECUTIONS_DATA_SAVE_ON_ERROR=all
       - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
       - N8N_SECURE_COOKIE=false
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
     volumes:
       - ./n8n_data:/home/node/.n8n
       - ./workflows:/workflows

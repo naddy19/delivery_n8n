@@ -1,0 +1,164 @@
+{
+  "name": "Image OCR with Claude Vision + Geocoding (Working)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload-image",
+        "responseMode": "lastNode"
+      },
+      "id": "webhook-node-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "upload-image"
+    },
+    {
+      "parameters": {
+        "jsCode": "const binaryData = $input.first().binary.image;\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'image');\nconst base64Data = buffer.toString('base64');\nconst mimeType = binaryData.mimeType || 'image/jpeg';\nconst base64Image = `data:${mimeType};base64,${base64Data}`;\n\nconsole.log('Image Details:');\nconsole.log('- MIME Type:', mimeType);\nconsole.log('- Buffer Size:', buffer.length);\nconsole.log('- Base64 Length:', base64Data.length);\nconsole.log('- Base64 Preview (first 50):', base64Data.substring(0, 50));\n\nreturn {\n  json: {\n    base64Image: base64Image,\n    mimeType: mimeType,\n    size: buffer.length\n  }\n};"
+      },
+      "id": "format-base64-node",
+      "name": "Format Base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://claude-ocr:8869/ocr/table",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ base64Image: $json.base64Image }) }}"
+      },
+      "id": "claude-api-node",
+      "name": "Claude Vision API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeResult = $json;\n\nif (!claudeResult.success || !claudeResult.groups || claudeResult.groups.length === 0) {\n  return {\n    json: {\n      routeData: {\n        totalGroups: 0,\n        groups: []\n      },\n      summary: {\n        totalGroups: 0,\n        totalStreets: 0,\n        totalHouses: 0\n      }\n    }\n  };\n}\n\nconst groupsArray = claudeResult.groups.map(group => ({\n  groupNumber: group.groupNumber,\n  streets: (group.streets || []).map(street => ({\n    streetName: street.streetName,\n    fromHouse: street.fromHouse || '',\n    toHouse: street.toHouse || ''\n  })),\n  totalStreets: (group.streets || []).length\n}));\n\ngroupsArray.sort((a, b) => a.groupNumber - b.groupNumber);\n\nreturn {\n  json: {\n    routeData: {\n      totalGroups: groupsArray.length,\n      groups: groupsArray,\n      source: 'claude-vision'\n    },\n    summary: {\n      totalGroups: groupsArray.length,\n      totalStreets: groupsArray.reduce((sum, g) => sum + g.totalStreets, 0),\n      totalHouses: 0\n    }\n  }\n};"
+      },
+      "id": "parse-claude-node",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const routeData = $json.routeData;\n\nlet totalCandidates = 0;\nconst allCandidates = [];\n\nrouteData.groups.forEach(group => {\n  group.streets.forEach(street => {\n    const fromHouseStr = street.fromHouse ? String(street.fromHouse).replace(/\\D/g, '') : '';\n    const toHouseStr = street.toHouse ? String(street.toHouse).replace(/\\D/g, '') : '';\n    \n    const fromHouse = fromHouseStr ? parseInt(fromHouseStr) : null;\n    const toHouse = toHouseStr ? parseInt(toHouseStr) : null;\n    \n    if (fromHouse && toHouse && !isNaN(fromHouse) && !isNaN(toHouse)) {\n      const start = Math.min(fromHouse, toHouse);\n      const end = Math.max(fromHouse, toHouse);\n      const isEven = start % 2 === 0;\n      \n      for (let i = start; i <= end; i += 2) {\n        if ((i % 2 === 0) === isEven) {\n          allCandidates.push({\n            groupNumber: group.groupNumber,\n            streetName: street.streetName,\n            houseNumber: i,\n            fullAddress: `${i} ${street.streetName}, Edmonton, AB, Canada`\n          });\n          totalCandidates++;\n        }\n      }\n    } else if (fromHouse && !isNaN(fromHouse)) {\n      allCandidates.push({\n        groupNumber: group.groupNumber,\n        streetName: street.streetName,\n        houseNumber: fromHouse,\n        fullAddress: `${fromHouse} ${street.streetName}, Edmonton, AB, Canada`\n      });\n      totalCandidates++;\n    }\n  });\n});\n\nconsole.log(`Generated ${totalCandidates} candidate addresses`);\n\nreturn allCandidates.map(addr => ({\n  json: {\n    address: addr,\n    routeData: routeData\n  }\n}));"
+      },
+      "id": "expand-addresses-node",
+      "name": "Generate Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://maps.googleapis.com/maps/api/geocode/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "address",
+              "value": "={{ encodeURIComponent($json.address.fullAddress) }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $credentials.httpQueryAuth.key }}"
+            }
+          ]
+        }
+      },
+      "id": "geocode-node",
+      "name": "Geocode Address",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 300],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "google-maps-key",
+          "name": "Google Maps API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const geocodeResult = $json;\nconst address = $input.first().json.address;\n\nlet coordinates = null;\nlet status = 'not_found';\nlet exists = false;\n\nif (geocodeResult.status === 'OK' && geocodeResult.results && geocodeResult.results.length > 0) {\n  const location = geocodeResult.results[0].geometry.location;\n  const locationType = geocodeResult.results[0].geometry.location_type;\n  \n  if (locationType === 'ROOFTOP' || locationType === 'RANGE_INTERPOLATED') {\n    coordinates = {\n      lat: location.lat,\n      lng: location.lng\n    };\n    status = 'success';\n    exists = true;\n  } else {\n    status = 'approximate';\n  }\n} else if (geocodeResult.status === 'ZERO_RESULTS') {\n  status = 'not_found';\n}\n\nreturn {\n  json: {\n    ...address,\n    coordinates: coordinates,\n    geocodeStatus: status,\n    exists: exists\n  }\n};"
+      },
+      "id": "parse-geocode-node",
+      "name": "Parse Geocode Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst existingAddresses = items.filter(item => item.json.exists).map(item => item.json);\nconst notFoundCount = items.length - existingAddresses.length;\n\nconsole.log(`Found ${existingAddresses.length} existing addresses out of ${items.length} candidates`);\n\nconst groups = {};\nexistingAddresses.forEach(addr => {\n  if (!groups[addr.groupNumber]) {\n    groups[addr.groupNumber] = [];\n  }\n  groups[addr.groupNumber].push(addr);\n});\n\nconst groupedData = Object.keys(groups).sort((a, b) => parseInt(a) - parseInt(b)).map(groupNum => {\n  const addresses = groups[groupNum];\n  const streetMap = {};\n  \n  addresses.forEach(addr => {\n    if (!streetMap[addr.streetName]) {\n      streetMap[addr.streetName] = [];\n    }\n    streetMap[addr.streetName].push(addr);\n  });\n  \n  return {\n    groupNumber: parseInt(groupNum),\n    streets: Object.keys(streetMap).map(streetName => ({\n      streetName: streetName,\n      addresses: streetMap[streetName]\n    })),\n    totalHouses: addresses.length\n  };\n});\n\nconst totalValidHouses = existingAddresses.length;\nconst successfulGeocodes = existingAddresses.filter(a => a.coordinates !== null).length;\n\nreturn {\n  json: {\n    groups: groupedData,\n    summary: {\n      totalGroups: groupedData.length,\n      totalCandidates: items.length,\n      totalHouses: totalValidHouses,\n      geocodedHouses: successfulGeocodes,\n      notFound: notFoundCount\n    }\n  }\n};"
+      },
+      "id": "aggregate-results-node",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nlet html = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Delivery Route</title>\n  <style>\n    body { font-family: Arial; margin: 20px; background: #f5f5f5; }\n    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }\n    h1 { color: #2c3e50; text-align: center; }\n    .summary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 30px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }\n    .summary-item { text-align: center; }\n    .summary-number { font-size: 32px; font-weight: bold; display: block; }\n    .summary-label { font-size: 14px; opacity: 0.9; }\n    .group { margin-bottom: 25px; border: 2px solid #3498db; border-radius: 8px; overflow: hidden; }\n    .group-header { background: #3498db; color: white; padding: 15px; font-size: 20px; font-weight: bold; }\n    .street-section { padding: 15px; border-bottom: 1px solid #eee; }\n    .street-name { font-weight: bold; color: #2c3e50; margin-bottom: 10px; }\n    .address-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }\n    .address-item { padding: 8px; background: #f8f9fa; border-radius: 5px; font-size: 13px; border-left: 3px solid #27ae60; }\n    .address-number { font-weight: bold; }\n    .coordinates { color: #666; font-size: 11px; margin-top: 3px; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <h1>📍 Delivery Route with Geocoded Addresses</h1>\n    <div class=\"summary\">\n      <div class=\"summary-item\"><span class=\"summary-number\">${data.summary.totalGroups}</span><span class=\"summary-label\">Groups</span></div>\n      <div class=\"summary-item\"><span class=\"summary-number\">${data.summary.totalHouses}</span><span class=\"summary-label\">Actual Houses</span></div>\n      <div class=\"summary-item\"><span class=\"summary-number\">${data.summary.totalCandidates}</span><span class=\"summary-label\">Tested</span></div>\n      <div class=\"summary-item\"><span class=\"summary-number\">${data.summary.notFound}</span><span class=\"summary-label\">Not Found</span></div>\n    </div>\n`;\n\ndata.groups.forEach(group => {\n  html += `<div class=\"group\"><div class=\"group-header\">Group ${group.groupNumber} - ${group.totalHouses} Houses</div>`;\n  group.streets.forEach(street => {\n    html += `<div class=\"street-section\"><div class=\"street-name\">📍 ${street.streetName} (${street.addresses.length} houses)</div><div class=\"address-list\">`;\n    street.addresses.forEach(addr => {\n      const coordText = addr.coordinates ? `${addr.coordinates.lat.toFixed(6)}, ${addr.coordinates.lng.toFixed(6)}` : 'No coords';\n      html += `<div class=\"address-item\"><div class=\"address-number\">${addr.houseNumber} ${addr.streetName}</div><div class=\"coordinates\">${coordText}</div></div>`;\n    });\n    html += `</div></div>`;\n  });\n  html += `</div>`;\n});\n\nhtml += `</div></body></html>`;\n\nreturn { json: { html: html, data: data } };"
+      },
+      "id": "generate-html-node",
+      "name": "Generate HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}"
+      },
+      "id": "respond-node",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Format Base64", "type": "main", "index": 0 }]]
+    },
+    "Format Base64": {
+      "main": [[{ "node": "Claude Vision API", "type": "main", "index": 0 }]]
+    },
+    "Claude Vision API": {
+      "main": [[{ "node": "Parse Claude Response", "type": "main", "index": 0 }]]
+    },
+    "Parse Claude Response": {
+      "main": [[{ "node": "Generate Candidates", "type": "main", "index": 0 }]]
+    },
+    "Generate Candidates": {
+      "main": [[{ "node": "Geocode Address", "type": "main", "index": 0 }]]
+    },
+    "Geocode Address": {
+      "main": [[{ "node": "Parse Geocode Result", "type": "main", "index": 0 }]]
+    },
+    "Parse Geocode Result": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Results": {
+      "main": [[{ "node": "Generate HTML", "type": "main", "index": 0 }]]
+    },
+    "Generate HTML": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
