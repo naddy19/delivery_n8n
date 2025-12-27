@@ -100,12 +100,33 @@
       "parameters": {
         "method": "GET",
         "url": "=https://maps.googleapis.com/maps/api/geocode/json?address={{ encodeURIComponent($json.address.fullAddress) }}&key={{ $json.apiKey }}",
-        "options": {}
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json",
+              "fullResponse": false,
+              "outputPropertyName": "geocodeResponse"
+            }
+          }
+        },
+        "sendBody": false,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "sendQuery": false,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": false,
+        "headerParameters": {
+          "parameters": []
+        }
       },
       "id": "geocode-node",
       "name": "Geocode Address",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
+      "typeVersion": 4.2,
       "position": [
         1250,
         300
