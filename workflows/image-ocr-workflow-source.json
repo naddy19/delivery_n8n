@@ -134,7 +134,8 @@
     },
     {
       "parameters": {
-        "jsCode": "// Process each geocode result and match it with the original address data\r\n// Using $itemIndex to get the corresponding item from Generate Candidates\r\nconst geocodeResult = $json;\r\nconst itemIndex = $itemIndex;\r\n\r\n// Get the corresponding address from Generate Candidates node using item index\r\nconst allCandidates = $('Generate Candidates').all();\r\nconst candidateItem = allCandidates[itemIndex];\r\nconst address = candidateItem?.json?.address || {};\r\n\r\nlet coordinates = null;\r\nlet status = 'not_found';\r\nlet exists = false;\r\n\r\nif (geocodeResult.status === 'OK' && geocodeResult.results && geocodeResult.results.length > 0) {\r\n  const location = geocodeResult.results[0].geometry.location;\r\n  const locationType = geocodeResult.results[0].geometry.location_type;\r\n  \r\n  if (locationType === 'ROOFTOP' || locationType === 'RANGE_INTERPOLATED') {\r\n    coordinates = {\r\n      lat: location.lat,\r\n      lng: location.lng\r\n    };\r\n    status = 'success';\r\n    exists = true;\r\n  } else {\r\n    status = 'approximate';\r\n  }\r\n} else if (geocodeResult.status === 'ZERO_RESULTS') {\r\n  status = 'not_found';\r\n}\r\n\r\nreturn {\r\n  json: {\r\n    groupNumber: address.groupNumber,\r\n    streetName: address.streetName,\r\n    houseNumber: address.houseNumber,\r\n    fullAddress: address.fullAddress,\r\n    coordinates: coordinates,\r\n    geocodeStatus: status,\r\n    exists: exists\r\n  }\r\n};\r\n"
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Code injected from nodes/parse-geocode-result.js during build"
       },
       "id": "parse-geocode-node",
       "name": "Parse Geocode Result",
