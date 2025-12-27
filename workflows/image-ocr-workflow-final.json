@@ -3,6 +3,26 @@
   "nodes": [
     {
       "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "google-api-key",
+              "name": "googleMapsApiKey",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-config-node",
+      "name": "Set Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [150, 300]
+    },
+    {
+      "parameters": {
         "httpMethod": "POST",
         "path": "upload-image",
         "responseMode": "lastNode"
@@ -50,7 +70,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const routeData = $json.routeData;\n\nlet totalCandidates = 0;\nconst allCandidates = [];\n\nrouteData.groups.forEach(group => {\n  group.streets.forEach(street => {\n    const fromHouseStr = street.fromHouse ? String(street.fromHouse).replace(/\\D/g, '') : '';\n    const toHouseStr = street.toHouse ? String(street.toHouse).replace(/\\D/g, '') : '';\n    \n    const fromHouse = fromHouseStr ? parseInt(fromHouseStr) : null;\n    const toHouse = toHouseStr ? parseInt(toHouseStr) : null;\n    \n    if (fromHouse && toHouse && !isNaN(fromHouse) && !isNaN(toHouse)) {\n      const start = Math.min(fromHouse, toHouse);\n      const end = Math.max(fromHouse, toHouse);\n      const isEven = start % 2 === 0;\n      \n      for (let i = start; i <= end; i += 2) {\n        if ((i % 2 === 0) === isEven) {\n          allCandidates.push({\n            groupNumber: group.groupNumber,\n            streetName: street.streetName,\n            houseNumber: i,\n            fullAddress: `${i} ${street.streetName}, Edmonton, AB, Canada`\n          });\n          totalCandidates++;\n        }\n      }\n    } else if (fromHouse && !isNaN(fromHouse)) {\n      allCandidates.push({\n        groupNumber: group.groupNumber,\n        streetName: street.streetName,\n        houseNumber: fromHouse,\n        fullAddress: `${fromHouse} ${street.streetName}, Edmonton, AB, Canada`\n      });\n      totalCandidates++;\n    }\n  });\n});\n\nconsole.log(`Generated ${totalCandidates} candidate addresses`);\n\nreturn allCandidates.map(addr => ({\n  json: {\n    address: addr,\n    routeData: routeData\n  }\n}));"
+        "jsCode": "const routeData = $json.routeData;\nconst apiKey = $env.GOOGLE_MAPS_API_KEY;\n\nlet totalCandidates = 0;\nconst allCandidates = [];\n\nrouteData.groups.forEach(group => {\n  group.streets.forEach(street => {\n    const fromHouseStr = street.fromHouse ? String(street.fromHouse).replace(/\\D/g, '') : '';\n    const toHouseStr = street.toHouse ? String(street.toHouse).replace(/\\D/g, '') : '';\n    \n    const fromHouse = fromHouseStr ? parseInt(fromHouseStr) : null;\n    const toHouse = toHouseStr ? parseInt(toHouseStr) : null;\n    \n    if (fromHouse && toHouse && !isNaN(fromHouse) && !isNaN(toHouse)) {\n      const start = Math.min(fromHouse, toHouse);\n      const end = Math.max(fromHouse, toHouse);\n      const isEven = start % 2 === 0;\n      \n      for (let i = start; i <= end; i += 2) {\n        if ((i % 2 === 0) === isEven) {\n          allCandidates.push({\n            groupNumber: group.groupNumber,\n            streetName: street.streetName,\n            houseNumber: i,\n            fullAddress: `${i} ${street.streetName}, Edmonton, AB, Canada`\n          });\n          totalCandidates++;\n        }\n      }\n    } else if (fromHouse && !isNaN(fromHouse)) {\n      allCandidates.push({\n        groupNumber: group.groupNumber,\n        streetName: street.streetName,\n        houseNumber: fromHouse,\n        fullAddress: `${fromHouse} ${street.streetName}, Edmonton, AB, Canada`\n      });\n      totalCandidates++;\n    }\n  });\n});\n\nconsole.log(`Generated ${totalCandidates} candidate addresses`);\n\nreturn allCandidates.map(addr => ({\n  json: {\n    address: addr,\n    apiKey: apiKey,\n    routeData: routeData\n  }\n}));"
       },
       "id": "expand-addresses-node",
       "name": "Generate Candidates",
@@ -61,36 +81,18 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://maps.googleapis.com/maps/api/geocode/json",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "address",
-              "value": "={{ encodeURIComponent($json.address.fullAddress) }}"
-            },
-            {
-              "name": "key",
-              "value": "={{ $credentials.httpQueryAuth.key }}"
-            }
-          ]
-        }
+        "url": "=https://maps.googleapis.com/maps/api/geocode/json?address={{ encodeURIComponent($json.address.fullAddress) }}&key={{ $json.apiKey }}",
+        "options": {}
       },
       "id": "geocode-node",
       "name": "Geocode Address",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 3,
-      "position": [1250, 300],
-      "credentials": {
-        "httpQueryAuth": {
-          "id": "google-maps-key",
-          "name": "Google Maps API Key"
-        }
-      }
+      "position": [1250, 300]
     },
     {
       "parameters": {
-        "jsCode": "const geocodeResult = $json;\nconst address = $input.first().json.address;\n\nlet coordinates = null;\nlet status = 'not_found';\nlet exists = false;\n\nif (geocodeResult.status === 'OK' && geocodeResult.results && geocodeResult.results.length > 0) {\n  const location = geocodeResult.results[0].geometry.location;\n  const locationType = geocodeResult.results[0].geometry.location_type;\n  \n  if (locationType === 'ROOFTOP' || locationType === 'RANGE_INTERPOLATED') {\n    coordinates = {\n      lat: location.lat,\n      lng: location.lng\n    };\n    status = 'success';\n    exists = true;\n  } else {\n    status = 'approximate';\n  }\n} else if (geocodeResult.status === 'ZERO_RESULTS') {\n  status = 'not_found';\n}\n\nreturn {\n  json: {\n    ...address,\n    coordinates: coordinates,\n    geocodeStatus: status,\n    exists: exists\n  }\n};"
+        "jsCode": "// The HTTP Request replaces the data, so we need to get the address from the execution data\n// Access the node that generated the candidates to get address info\nconst geocodeResult = $json;\nconst itemIndex = $itemIndex;\n\n// Get data from the 'Generate Candidates' node for this item\nconst generateCandidatesData = $('Generate Candidates').item.json;\nconst address = generateCandidatesData?.address || {};\n\nlet coordinates = null;\nlet status = 'not_found';\nlet exists = false;\n\nif (geocodeResult.status === 'OK' && geocodeResult.results && geocodeResult.results.length > 0) {\n  const location = geocodeResult.results[0].geometry.location;\n  const locationType = geocodeResult.results[0].geometry.location_type;\n  \n  if (locationType === 'ROOFTOP' || locationType === 'RANGE_INTERPOLATED') {\n    coordinates = {\n      lat: location.lat,\n      lng: location.lng\n    };\n    status = 'success';\n    exists = true;\n  } else {\n    status = 'approximate';\n  }\n} else if (geocodeResult.status === 'ZERO_RESULTS') {\n  status = 'not_found';\n}\n\nreturn {\n  json: {\n    groupNumber: address.groupNumber,\n    streetName: address.streetName,\n    houseNumber: address.houseNumber,\n    fullAddress: address.fullAddress,\n    coordinates: coordinates,\n    geocodeStatus: status,\n    exists: exists\n  }\n};"
       },
       "id": "parse-geocode-node",
       "name": "Parse Geocode Result",
@@ -131,6 +133,9 @@
     }
   ],
   "connections": {
+    "Set Config": {
+      "main": [[{ "node": "Webhook", "type": "main", "index": 0 }]]
+    },
     "Webhook": {
       "main": [[{ "node": "Format Base64", "type": "main", "index": 0 }]]
     },

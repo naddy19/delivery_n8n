@@ -1,5 +1,25 @@
+# n8n data directory (contains execution data, binary files, config)
 n8n_data/
+
+# Environment variables
 .env
 *.env
 .env.*
 !.env.example
+
+# Sample data files (test outputs)
+sample_data/*.json
+sample_data/*.html
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
