@@ -1,0 +1,20 @@
+{
+  "name": "delivery-n8n",
+  "version": "1.0.0",
+  "description": "Delivery route OCR and geocoding workflow for n8n",
+  "scripts": {
+    "build": "node build-workflow.js",
+    "build:watch": "nodemon --watch nodes --exec \"npm run build\""
+  },
+  "keywords": [
+    "n8n",
+    "ocr",
+    "geocoding",
+    "delivery"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

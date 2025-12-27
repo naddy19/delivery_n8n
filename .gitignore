@@ -11,6 +11,13 @@ n8n_data/
 sample_data/*.json
 sample_data/*.html
 
+# Built workflow files (generated from source)
+workflows/dist/
+
+# Node modules
+node_modules/
+package-lock.json
+
 # Python cache
 __pycache__/
 *.pyc

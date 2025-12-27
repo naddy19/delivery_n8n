@@ -76,9 +76,51 @@ docker-compose down
 - `claude_ocr_server.py` - Claude Vision OCR server
 - `index.html` - Image upload interface
 - `nginx.conf` - Web server configuration
-- `workflows/image-ocr-workflow-final.json` - Main n8n workflow
+- `workflows/image-ocr-workflow-source.json` - Workflow template (clean, no embedded code)
+- `workflows/dist/image-ocr-workflow-final.json` - Built workflow (generated, not in git)
+- `nodes/*.js` - JavaScript source files for workflow Code nodes
+- `build-workflow.js` - Build script to inject code into workflow
 - `test_geocoding.py` - Geocoding validation script
 - `analyze_ranges.py` - Address range analysis utility
+
+## Development
+
+### Editing Workflow Code
+
+The workflow's JavaScript code is maintained in separate files in the `nodes/` directory:
+
+```bash
+# Install dependencies (first time only)
+npm install
+
+# Build workflow (injects code from nodes/*.js into workflow JSON)
+npm run build
+
+# Auto-rebuild on file changes
+npm run build:watch
+```
+
+The build process:
+1. Reads `workflows/image-ocr-workflow-source.json` (clean template)
+2. Injects code from `nodes/*.js` files
+3. Outputs to `workflows/dist/image-ocr-workflow-final.json` (built version)
+
+**Import the built file into n8n**: `workflows/dist/image-ocr-workflow-final.json`
+
+**Benefits:**
+- ✅ Full IDE support (syntax highlighting, IntelliSense, linting)
+- ✅ Better version control (clean diffs, no code duplication)
+- ✅ Easier code maintenance and testing
+- ✅ Source files stay clean (no embedded code)
+- ✅ Built files excluded from git
+
+After building, import the updated `workflows/image-ocr-workflow-final.json` into n8n.
+
+**Benefits:**
+- ✅ Full IDE support (syntax highlighting, IntelliSense, linting)
+- ✅ Better version control (clean diffs)
+- ✅ Easier code maintenance and testing
+- ✅ Proper JavaScript file formatting
 
 ## Features
 
