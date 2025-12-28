@@ -174,18 +174,8 @@
     },
     {
       "parameters": {
-        "respondWith": "allIncomingItems",
-        "options": {
-          "responseHeaders": {
-            "entries": [
-              {
-                "name": "Content-Type",
-                "value": "text/html; charset=utf-8"
-              }
-            ]
-          }
-        },
-        "responseBody": "={{ $json.html }}"
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
       },
       "id": "respond-node",
       "name": "Respond to Webhook",
