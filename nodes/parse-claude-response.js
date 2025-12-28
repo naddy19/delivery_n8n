@@ -21,7 +21,8 @@ const groupsArray = claudeResult.groups.map(group => ({
   streets: (group.streets || []).map(street => ({
     streetName: street.streetName,
     fromHouse: street.fromHouse || '',
-    toHouse: street.toHouse || ''
+    toHouse: street.toHouse || '',
+    numberOfHouses: street.numberOfHouses || null
   })),
   totalStreets: (group.streets || []).length
 }));
