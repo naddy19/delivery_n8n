@@ -270,12 +270,13 @@
     <p>Take a clear photo of today's delivery sheet</p>
 
     <div class="card">
-      <label for="photoInput">📷 Take Photo or Upload</label>
+      <label for="photoInput">📷 Take Photo or Upload (Multiple Pages Supported)</label>
       <input 
         id="photoInput" 
         type="file" 
         accept="image/*" 
-        capture="environment" 
+        capture="environment"
+        multiple
       />
 
       <div class="preview" id="preview"></div>
@@ -299,67 +300,197 @@
     input.addEventListener('change', () => {
       preview.innerHTML = '';
       resultDiv.innerHTML = '';
-      const file = input.files[0];
-      if (!file) return;
+      const files = input.files;
+      if (!files || files.length === 0) return;
 
-      const img = document.createElement('img');
-      img.src = URL.createObjectURL(file);
-      preview.appendChild(img);
+      // Show all selected images
+      for (let i = 0; i < files.length; i++) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(files[i]);
+        img.style.marginBottom = '10px';
+        preview.appendChild(img);
+      }
+      
       uploadBtn.disabled = false;
+      uploadBtn.textContent = `🚀 Process ${files.length} Page${files.length > 1 ? 's' : ''}`;
     });
 
     uploadBtn.addEventListener('click', async () => {
       console.log('Upload button clicked');
-      const file = input.files[0];
-      if (!file) {
-        console.log('No file selected');
+      const files = input.files;
+      if (!files || files.length === 0) {
+        console.log('No files selected');
         return;
       }
 
       uploadBtn.disabled = true;
-      uploadBtn.textContent = '⏳ Processing...';
+      const totalFiles = files.length;
+      let processedFiles = 0;
 
-      const formData = new FormData();
-      formData.append('image', file);
-      console.log('Sending request...');
+      // Show progress
+      resultDiv.innerHTML = `<div style="background: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center;">
+        ⏳ Processing ${totalFiles} page${totalFiles > 1 ? 's' : ''}... (0/${totalFiles})
+      </div>`;
+
+      console.log(`Processing ${totalFiles} files...`);
 
       try {
-        const response = await fetch('/webhook-test/upload-image', {
-          method: 'POST',
-          body: formData
-        });
+        const allResults = [];
 
-        console.log('Response received:', response.status, response.statusText);
+        // Process each file sequentially
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          console.log(`Processing file ${i + 1}/${totalFiles}:`, file.name);
+          
+          // Update progress
+          resultDiv.innerHTML = `<div style="background: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center;">
+            ⏳ Processing page ${i + 1}/${totalFiles}...<br>
+            <small>${file.name}</small>
+          </div>`;
 
-        if (response.ok) {
-          const contentType = response.headers.get('content-type');
-          console.log('Response content-type:', contentType);
-          
-          const data = await response.json();
-          console.log('Received data:', data);
-          
-          // Clear any existing content first
-          resultDiv.innerHTML = '';
-          
-          // Render the interactive validation UI
-          try {
-            renderValidationUI(data);
-          } catch (err) {
-            console.error('Error rendering UI:', err);
-            resultDiv.innerHTML = '<div style="background: #fee; color: #c00; padding: 20px; border-radius: 10px;">❌ Error rendering UI: ' + err.message + '</div>';
+          const formData = new FormData();
+          formData.append('image', file);
+
+          const response = await fetch('/webhook-test/upload-image', {
+            method: 'POST',
+            body: formData
+          });
+
+          console.log(`Response for file ${i + 1}:`, response.status, response.statusText);
+
+          if (response.ok) {
+            const contentType = response.headers.get('content-type');
+            console.log('Response content-type:', contentType);
+            
+            const data = await response.json();
+            console.log(`Received data for file ${i + 1}:`, data);
+            
+            allResults.push(data);
+            processedFiles++;
+          } else {
+            console.error(`Failed to process file ${i + 1}`);
+            allResults.push(null);
           }
-          
-          resultDiv.scrollIntoView({ behavior: 'smooth' });
-        } else {
-          resultDiv.innerHTML = '<div style="background: #fee; color: #c00; padding: 20px; border-radius: 10px;">❌ Upload failed. Please try again.</div>';
         }
+
+        console.log('All results:', allResults);
+
+        // Filter out failed results
+        const validResults = allResults.filter(r => r !== null);
+
+        if (validResults.length === 0) {
+          resultDiv.innerHTML = '<div style="background: #fee; color: #c00; padding: 20px; border-radius: 10px;">❌ Failed to process any images. Please try again.</div>';
+          return;
+        }
+
+        // Merge all results
+        const mergedData = mergeResults(validResults);
+        console.log('Merged data:', mergedData);
+
+        // Clear and render
+        resultDiv.innerHTML = '';
+        
+        try {
+          renderValidationUI(mergedData);
+        } catch (err) {
+          console.error('Error rendering UI:', err);
+          resultDiv.innerHTML = '<div style="background: #fee; color: #c00; padding: 20px; border-radius: 10px;">❌ Error rendering UI: ' + err.message + '</div>';
+        }
+        
+        resultDiv.scrollIntoView({ behavior: 'smooth' });
       } catch (error) {
+        console.error('Error processing files:', error);
         resultDiv.innerHTML = '<div style="background: #fee; color: #c00; padding: 20px; border-radius: 10px;">❌ Error: ' + error.message + '</div>';
       } finally {
         uploadBtn.disabled = false;
         uploadBtn.textContent = '🚀 Process Route';
       }
     });
+
+    // Function to merge multiple results into one
+    function mergeResults(results) {
+      console.log('Merging results:', results);
+      
+      const mergedGroups = {};
+      const summary = {
+        totalGroups: 0,
+        totalCandidates: 0,
+        totalHouses: 0,
+        geocodedHouses: 0,
+        rooftopAddresses: 0,
+        interpolatedAddresses: 0,
+        notFound: 0,
+        discardedDueToProximity: 0
+      };
+
+      // Merge all groups from all results
+      results.forEach(result => {
+        if (!result || !result.groups) return;
+
+        result.groups.forEach(group => {
+          const groupKey = group.groupNumber;
+          
+          if (!mergedGroups[groupKey]) {
+            mergedGroups[groupKey] = {
+              groupNumber: group.groupNumber,
+              streets: {},
+              totalHouses: 0
+            };
+          }
+
+          // Merge streets
+          group.streets.forEach(street => {
+            const streetKey = street.streetName;
+            
+            if (!mergedGroups[groupKey].streets[streetKey]) {
+              mergedGroups[groupKey].streets[streetKey] = {
+                streetName: street.streetName,
+                addresses: []
+              };
+            }
+
+            // Add addresses (avoiding duplicates based on house number)
+            street.addresses.forEach(addr => {
+              const exists = mergedGroups[groupKey].streets[streetKey].addresses.some(
+                a => a.houseNumber === addr.houseNumber
+              );
+              
+              if (!exists) {
+                mergedGroups[groupKey].streets[streetKey].addresses.push(addr);
+                mergedGroups[groupKey].totalHouses++;
+              }
+            });
+          });
+        });
+
+        // Merge summary
+        if (result.summary) {
+          summary.totalCandidates += result.summary.totalCandidates || 0;
+          summary.totalHouses += result.summary.totalHouses || 0;
+          summary.geocodedHouses += result.summary.geocodedHouses || 0;
+          summary.rooftopAddresses += result.summary.rooftopAddresses || 0;
+          summary.interpolatedAddresses += result.summary.interpolatedAddresses || 0;
+          summary.notFound += result.summary.notFound || 0;
+          summary.discardedDueToProximity += result.summary.discardedDueToProximity || 0;
+        }
+      });
+
+      // Convert to array and sort addresses
+      const groupsArray = Object.values(mergedGroups).map(group => ({
+        ...group,
+        streets: Object.values(group.streets).map(street => ({
+          ...street,
+          addresses: street.addresses.sort((a, b) => a.houseNumber - b.houseNumber)
+        }))
+      })).sort((a, b) => a.groupNumber - b.groupNumber);
+
+      summary.totalGroups = groupsArray.length;
+
+      return {
+        groups: groupsArray,
+        summary: summary
+      };
+    }
 
     function renderValidationUI(data) {
       console.log('renderValidationUI called with:', data);
