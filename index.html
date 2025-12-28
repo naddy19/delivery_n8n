@@ -849,17 +849,21 @@
         return a.houseNumber - b.houseNumber;
       });
       
-      console.log('Route addresses (sorted):', addresses.map(a => `${a.houseNumber} ${a.streetName}`));
+      console.log('Route addresses (initial sort):', addresses.map(a => `${a.houseNumber} ${a.streetName}`));
       
-      if (addresses.length === 1) {
-        const addr = addresses[0];
+      // Optimize route order using nearest neighbor algorithm
+      const optimizedAddresses = optimizeRouteOrder(addresses);
+      console.log('Route addresses (optimized):', optimizedAddresses.map(a => `${a.houseNumber} ${a.streetName}`));
+      
+      if (optimizedAddresses.length === 1) {
+        const addr = optimizedAddresses[0];
         const url = `https://www.google.com/maps?q=${addr.coordinates.lat},${addr.coordinates.lng}`;
         window.open(url, '_blank');
         showToast('Opening single address location...');
       } else {
-        const origin = addresses[0];
-        const destination = addresses[addresses.length - 1];
-        const waypoints = addresses.slice(1, -1).map(a => `${a.coordinates.lat},${a.coordinates.lng}`).join('|');
+        const origin = optimizedAddresses[0];
+        const destination = optimizedAddresses[optimizedAddresses.length - 1];
+        const waypoints = optimizedAddresses.slice(1, -1).map(a => `${a.coordinates.lat},${a.coordinates.lng}`).join('|');
         
         let url = `https://www.google.com/maps/dir/?api=1&origin=${origin.coordinates.lat},${origin.coordinates.lng}&destination=${destination.coordinates.lat},${destination.coordinates.lng}`;
         
@@ -870,8 +874,68 @@
         url += '&travelmode=walking';
         
         window.open(url, '_blank');
-        showToast(`Opening route with ${addresses.length} stops...`);
+        showToast(`Opening optimized route with ${optimizedAddresses.length} stops...`);
       }
+    }
+
+    // Optimize route using nearest neighbor algorithm (greedy approach)
+    function optimizeRouteOrder(addresses) {
+      if (addresses.length <= 2) return addresses;
+      
+      const unvisited = [...addresses];
+      const route = [];
+      
+      // Start with the first address
+      let current = unvisited.shift();
+      route.push(current);
+      
+      // Greedily pick nearest neighbor
+      while (unvisited.length > 0) {
+        let nearestIndex = 0;
+        let nearestDistance = calculateDistanceInMeters(
+          current.coordinates.lat,
+          current.coordinates.lng,
+          unvisited[0].coordinates.lat,
+          unvisited[0].coordinates.lng
+        );
+        
+        // Find nearest unvisited address
+        for (let i = 1; i < unvisited.length; i++) {
+          const distance = calculateDistanceInMeters(
+            current.coordinates.lat,
+            current.coordinates.lng,
+            unvisited[i].coordinates.lat,
+            unvisited[i].coordinates.lng
+          );
+          
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = i;
+          }
+        }
+        
+        // Move to nearest address
+        current = unvisited.splice(nearestIndex, 1)[0];
+        route.push(current);
+      }
+      
+      return route;
+    }
+
+    // Calculate distance between two coordinates in meters (Haversine formula)
+    function calculateDistanceInMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371e3; // Earth's radius in meters
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      return R * c; // Distance in meters
     }
 
     function toggleInterpolated(groupId) {
