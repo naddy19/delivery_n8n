@@ -130,11 +130,29 @@
     .address-row { transition: background 0.2s; }
     .address-row:hover { background: #f8f9fa; }
     .address-row.invalid { opacity: 0.5; background: #fee; }
+    .address-row.interpolated-hidden { display: none; }
     .checkbox-cell { width: 40px; text-align: center; }
     .status-badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
     .status-rooftop { background: #d4edda; color: #155724; }
     .status-interpolated { background: #fff3cd; color: #856404; }
     .status-unknown { background: #e2e3e5; color: #383d41; }
+    .toggle-interpolated-btn { background: #f39c12; color: white; }
+    .toggle-interpolated-btn:hover { background: #e67e22; }
+    .add-address-btn { background: #1abc9c; color: white; }
+    .add-address-btn:hover { background: #16a085; }
+    .edit-address-btn { background: #3498db; color: white; padding: 4px 8px; font-size: 11px; border: none; border-radius: 3px; cursor: pointer; }
+    .edit-address-btn:hover { background: #2980b9; }
+    .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+    .modal-content { background: white; margin: 5% auto; padding: 20px; border-radius: 10px; width: 90%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .modal-header { font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #2c3e50; }
+    .modal-footer { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+    .modal-input { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+    .modal-btn { padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer; }
+    .modal-btn-primary { background: #27ae60; color: white; }
+    .modal-btn-primary:hover { background: #229954; }
+    .modal-btn-secondary { background: #95a5a6; color: white; }
+    .modal-btn-secondary:hover { background: #7f8c8d; }
+    .interpolated-count { color: #f39c12; font-weight: bold; }
     .coordinates { color: #666; font-size: 11px; font-family: monospace; }
     .map-link { color: #3498db; text-decoration: none; font-size: 12px; }
     .map-link:hover { text-decoration: underline; }
@@ -534,16 +552,27 @@
       
       data.groups.forEach(group => {
         const groupId = `group-${group.groupNumber}`;
+        const confirmedCount = group.streets.reduce((sum, street) => 
+          sum + street.addresses.filter(a => a.geocodeStatus === 'rooftop').length, 0);
+        const interpolatedCount = group.streets.reduce((sum, street) => 
+          sum + street.addresses.filter(a => a.geocodeStatus === 'interpolated').length, 0);
+        
         html += `
           <div class="group" id="${groupId}">
             <div class="group-header">
-              <span>Group ${group.groupNumber} - ${group.totalHouses} Houses</span>
-              <div style="display: flex; gap: 10px; align-items: center;">
+              <span>Group ${group.groupNumber} - <span id="${groupId}-confirmed-count">${confirmedCount}</span> Confirmed (<span class="interpolated-count" id="${groupId}-interpolated-count">${interpolatedCount}</span> Verify)</span>
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <button class="action-btn toggle-interpolated-btn" onclick="toggleInterpolated('${groupId}')" id="${groupId}-toggle-btn">
+                  👁️ Show ${interpolatedCount} Unverified
+                </button>
+                <button class="action-btn add-address-btn" onclick="showAddAddressModal('${groupId}', ${group.groupNumber})">
+                  ➕ Add Address
+                </button>
                 <button class="action-btn route-map-btn" onclick="generateRouteMap('${groupId}')">
                   🗺️ Generate Route Map
                 </button>
                 <span class="group-stats">
-                  <span id="${groupId}-selected">${group.totalHouses}</span> selected
+                  <span id="${groupId}-selected">${confirmedCount}</span> selected
                 </span>
               </div>
             </div>
@@ -581,22 +610,30 @@
             const mapLink = addr.coordinates ? `https://www.google.com/maps?q=${addr.coordinates.lat},${addr.coordinates.lng}` : '#';
             
             let statusBadge = '<span class="status-badge status-unknown">Unknown</span>';
+            let rowClass = 'address-row';
+            let isChecked = 'checked';
+            
             if (addr.geocodeStatus === 'rooftop') {
               statusBadge = '<span class="status-badge status-rooftop">✓ ROOFTOP</span>';
             } else if (addr.geocodeStatus === 'interpolated') {
               statusBadge = '<span class="status-badge status-interpolated">⚠ INTERPOLATED</span>';
+              rowClass = 'address-row interpolated-hidden';
+              isChecked = '';
             }
             
             html += `
-              <tr class="address-row" id="${addressId}" data-group="${group.groupNumber}" data-street="${street.streetName}">
+              <tr class="${rowClass}" id="${addressId}" data-group="${group.groupNumber}" data-street="${street.streetName}" data-status="${addr.geocodeStatus || 'unknown'}">
                 <td class="checkbox-cell">
-                  <input type="checkbox" checked onchange="updateAddressCounts()" data-address='${JSON.stringify(addr).replace(/'/g, "&apos;")}'>
+                  <input type="checkbox" ${isChecked} onchange="updateAddressCounts()" data-address='${JSON.stringify(addr).replace(/'/g, "&apos;")}'>
                 </td>
                 <td><strong>${addr.houseNumber}</strong></td>
                 <td>${addr.fullAddress}</td>
                 <td>${statusBadge}</td>
                 <td class="coordinates">${coordText}</td>
-                <td>${addr.coordinates ? `<a href="${mapLink}" target="_blank" class="map-link">View Map</a>` : '-'}</td>
+                <td>
+                  ${addr.coordinates ? `<a href="${mapLink}" target="_blank" class="map-link">View Map</a>` : '-'}
+                  <button class="edit-address-btn" onclick="showEditAddressModal('${addressId}', '${groupId}')">✏️ Edit</button>
+                </td>
               </tr>
             `;
           });
@@ -611,6 +648,27 @@
         
         html += `</div>`;
       });
+      
+      // Add modal for adding/editing addresses
+      html += `
+        <div id="addressModal" class="modal">
+          <div class="modal-content">
+            <div class="modal-header" id="modalTitle">Add Address</div>
+            <input type="hidden" id="modalGroupId">
+            <input type="hidden" id="modalAddressId">
+            <input type="hidden" id="modalGroupNumber">
+            <input type="number" class="modal-input" id="modalHouseNumber" placeholder="House Number (e.g., 503)">
+            <input type="text" class="modal-input" id="modalStreetName" placeholder="Street Name (e.g., HILLCREST PT NW)">
+            <input type="text" class="modal-input" id="modalCity" placeholder="City" value="Edmonton">
+            <input type="text" class="modal-input" id="modalProvince" placeholder="Province" value="AB">
+            <input type="text" class="modal-input" id="modalCountry" placeholder="Country" value="Canada">
+            <div class="modal-footer">
+              <button class="modal-btn modal-btn-secondary" onclick="closeAddressModal()">Cancel</button>
+              <button class="modal-btn modal-btn-primary" onclick="saveAddress()">Save</button>
+            </div>
+          </div>
+        </div>
+      `;
       
       html += `</div>`;
       
@@ -739,25 +797,59 @@
 
     function generateRouteMap(groupId) {
       const group = document.getElementById(groupId);
-      const checkedCheckboxes = group.querySelectorAll('input[type="checkbox"]:checked');
+      // Only get checkboxes from visible rows (not hidden interpolated ones)
+      const visibleRows = group.querySelectorAll('.address-row:not(.interpolated-hidden)');
       
-      if (checkedCheckboxes.length === 0) {
-        alert('ℹ️ No addresses selected in this group! Please select at least one address.');
+      console.log(`Total visible rows in ${groupId}:`, visibleRows.length);
+      
+      if (visibleRows.length === 0) {
+        alert('ℹ️ No visible addresses in this group!');
         return;
       }
       
-      const addresses = [];
-      checkedCheckboxes.forEach(cb => {
-        const address = JSON.parse(cb.dataset.address);
-        if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
-          addresses.push(address);
+      // Collect addresses and ensure uniqueness by house number
+      const addressMap = new Map();
+      visibleRows.forEach((row, index) => {
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        if (!checkbox || !checkbox.checked) {
+          return;
+        }
+        
+        try {
+          const address = JSON.parse(checkbox.dataset.address);
+          console.log(`Row ${index}: ${address.houseNumber} ${address.streetName}, checked: ${checkbox.checked}, coords: ${address.coordinates ? 'yes' : 'no'}`);
+          
+          if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
+            // Use house number + street name + coordinates as unique key to avoid duplicates
+            const key = `${address.streetName}-${address.houseNumber}-${address.coordinates.lat}`;
+            if (!addressMap.has(key)) {
+              addressMap.set(key, address);
+            } else {
+              console.warn(`Duplicate found and skipped: ${address.houseNumber} ${address.streetName}`);
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing address from checkbox:', err);
         }
       });
+      
+      const addresses = Array.from(addressMap.values());
+      console.log(`Unique addresses collected: ${addresses.length}`);
       
       if (addresses.length === 0) {
         alert('ℹ️ No valid coordinates found for selected addresses!');
         return;
       }
+      
+      // Sort addresses by street name first, then by house number for logical route order
+      addresses.sort((a, b) => {
+        if (a.streetName !== b.streetName) {
+          return a.streetName.localeCompare(b.streetName);
+        }
+        return a.houseNumber - b.houseNumber;
+      });
+      
+      console.log('Route addresses (sorted):', addresses.map(a => `${a.houseNumber} ${a.streetName}`));
       
       if (addresses.length === 1) {
         const addr = addresses[0];
@@ -779,6 +871,184 @@
         
         window.open(url, '_blank');
         showToast(`Opening route with ${addresses.length} stops...`);
+      }
+    }
+
+    function toggleInterpolated(groupId) {
+      const group = document.getElementById(groupId);
+      const interpolatedRows = group.querySelectorAll('.address-row[data-status="interpolated"]');
+      const toggleBtn = document.getElementById(groupId + '-toggle-btn');
+      const isHidden = interpolatedRows[0]?.classList.contains('interpolated-hidden');
+      
+      interpolatedRows.forEach(row => {
+        if (isHidden) {
+          row.classList.remove('interpolated-hidden');
+        } else {
+          row.classList.add('interpolated-hidden');
+          // Uncheck hidden addresses
+          const checkbox = row.querySelector('input[type="checkbox"]');
+          if (checkbox) checkbox.checked = false;
+        }
+      });
+      
+      toggleBtn.textContent = isHidden ? '👁️ Hide Unverified' : `👁️ Show ${interpolatedRows.length} Unverified`;
+      updateAddressCounts();
+    }
+
+    function showAddAddressModal(groupId, groupNumber) {
+      document.getElementById('modalTitle').textContent = 'Add Address to Group ' + groupNumber;
+      document.getElementById('modalGroupId').value = groupId;
+      document.getElementById('modalGroupNumber').value = groupNumber;
+      document.getElementById('modalAddressId').value = '';
+      document.getElementById('modalHouseNumber').value = '';
+      document.getElementById('modalStreetName').value = '';
+      document.getElementById('modalCity').value = 'Edmonton';
+      document.getElementById('modalProvince').value = 'AB';
+      document.getElementById('modalCountry').value = 'Canada';
+      document.getElementById('addressModal').style.display = 'block';
+    }
+
+    function showEditAddressModal(addressId, groupId) {
+      const row = document.getElementById(addressId);
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      const addr = JSON.parse(checkbox.dataset.address);
+      
+      document.getElementById('modalTitle').textContent = 'Edit Address';
+      document.getElementById('modalGroupId').value = groupId;
+      document.getElementById('modalAddressId').value = addressId;
+      document.getElementById('modalGroupNumber').value = addr.groupNumber;
+      document.getElementById('modalHouseNumber').value = addr.houseNumber;
+      
+      // Extract street name from full address
+      const addressParts = addr.fullAddress.split(',');
+      const streetPart = addressParts[0].trim().replace(/^\d+\s+/, '');
+      document.getElementById('modalStreetName').value = streetPart;
+      document.getElementById('modalCity').value = addressParts[1]?.trim() || 'Edmonton';
+      document.getElementById('modalProvince').value = addressParts[2]?.trim() || 'AB';
+      document.getElementById('modalCountry').value = addressParts[3]?.trim() || 'Canada';
+      
+      document.getElementById('addressModal').style.display = 'block';
+    }
+
+    function closeAddressModal() {
+      document.getElementById('addressModal').style.display = 'none';
+    }
+
+    async function saveAddress() {
+      const groupId = document.getElementById('modalGroupId').value;
+      const addressId = document.getElementById('modalAddressId').value;
+      const groupNumber = parseInt(document.getElementById('modalGroupNumber').value);
+      const houseNumber = parseInt(document.getElementById('modalHouseNumber').value);
+      const streetName = document.getElementById('modalStreetName').value.trim().toUpperCase();
+      const city = document.getElementById('modalCity').value.trim();
+      const province = document.getElementById('modalProvince').value.trim();
+      const country = document.getElementById('modalCountry').value.trim();
+      
+      if (!houseNumber || !streetName) {
+        alert('Please enter house number and street name');
+        return;
+      }
+      
+      const fullAddress = `${houseNumber} ${streetName}, ${city}, ${province}, ${country}`;
+      
+      // Create new address object
+      const newAddress = {
+        groupNumber: groupNumber,
+        streetName: streetName,
+        houseNumber: houseNumber,
+        fullAddress: fullAddress,
+        coordinates: null,
+        geocodeStatus: 'manual',
+        exists: true
+      };
+      
+      // If editing, update existing row
+      if (addressId) {
+        const row = document.getElementById(addressId);
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox.dataset.address = JSON.stringify(newAddress);
+        
+        row.cells[1].innerHTML = `<strong>${houseNumber}</strong>`;
+        row.cells[2].textContent = fullAddress;
+        row.cells[3].innerHTML = '<span class="status-badge" style="background: #3498db; color: white;">✏️ MANUAL</span>';
+        row.cells[4].textContent = 'Manual entry';
+        row.cells[5].innerHTML = '<button class="edit-address-btn" onclick="showEditAddressModal(\'' + addressId + '\', \'' + groupId + '\')">✏️ Edit</button>';
+        
+        showToast('Address updated successfully!');
+      } else {
+        // If adding new, find the right street table or create new street section
+        const group = document.getElementById(groupId);
+        let streetSection = null;
+        
+        // Find existing street section
+        group.querySelectorAll('.street-section').forEach(section => {
+          const streetNameEl = section.querySelector('.street-name');
+          if (streetNameEl && streetNameEl.textContent.includes(streetName)) {
+            streetSection = section;
+          }
+        });
+        
+        // If street doesn't exist, create new street section
+        if (!streetSection) {
+          const newStreetHtml = `
+            <div class="street-section">
+              <div class="street-header">
+                <div class="street-name">🏘️ ${streetName} (1 houses)</div>
+                <div class="street-actions">
+                  <button class="street-btn" onclick="selectStreet('${groupId}-street-new-${Date.now()}')">✓ Select All</button>
+                  <button class="street-btn" onclick="deselectStreet('${groupId}-street-new-${Date.now()}')">✗ Deselect All</button>
+                </div>
+              </div>
+              <div class="address-table">
+                <table id="${groupId}-street-new-${Date.now()}">
+                  <thead>
+                    <tr>
+                      <th class="checkbox-cell">✓</th>
+                      <th>House #</th>
+                      <th>Full Address</th>
+                      <th>Status</th>
+                      <th>Coordinates</th>
+                      <th>Map</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          `;
+          group.querySelector('.group-header').insertAdjacentHTML('afterend', newStreetHtml);
+          streetSection = group.querySelector('.street-section:last-of-type');
+        }
+        
+        // Add new row to the table
+        const table = streetSection.querySelector('tbody');
+        const newRowId = `${groupId}-addr-new-${Date.now()}`;
+        const newRow = `
+          <tr class="address-row" id="${newRowId}" data-group="${groupNumber}" data-street="${streetName}" data-status="manual">
+            <td class="checkbox-cell">
+              <input type="checkbox" checked onchange="updateAddressCounts()" data-address='${JSON.stringify(newAddress).replace(/'/g, "&apos;")}'>
+            </td>
+            <td><strong>${houseNumber}</strong></td>
+            <td>${fullAddress}</td>
+            <td><span class="status-badge" style="background: #3498db; color: white;">✏️ MANUAL</span></td>
+            <td class="coordinates">Manual entry</td>
+            <td><button class="edit-address-btn" onclick="showEditAddressModal('${newRowId}', '${groupId}')">✏️ Edit</button></td>
+          </tr>
+        `;
+        table.insertAdjacentHTML('beforeend', newRow);
+        
+        showToast('Address added successfully!');
+      }
+      
+      closeAddressModal();
+      updateAddressCounts();
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+      const modal = document.getElementById('addressModal');
+      if (event.target == modal) {
+        closeAddressModal();
       }
     }
   </script>
